@@ -2,11 +2,6 @@ import cv2
 import numpy as np
 
 
-class Detector():
-    def __init__(self, fileInput):
-        self.videoPath = fileInput
-
-
 class Tracker:
     def __init__(self, fileInput):
         self.videoPath = fileInput
@@ -14,10 +9,31 @@ class Tracker:
         self.heigth = 0
         self.width = 0
 
+    def getBlobParams(self):
+        params = cv2.SimpleBlobDetector_Params()
+
+        params.filterByInertia = True
+        params.minInertiaRatio = 0.7  # At least .7, that should be a circle, right?
+
+        params.filterByConvexity = True
+        params.minConvexity = 0.7  # Round enough
+
+        return params
+
+    def detector(self, frame):
+        detector = cv2.SimpleBlobDetector_create(self.getBlobParams())
+        keypoints = detector.detect(frame)
+        return keypoints
+
+    def fromBlobToBbox(self, blob):
+        x, y, size = blob  # Separate the values on the blob
+        x = (x - size/2)
+        y = int(y - size/2)
+        return x, y, size, size  # Since is a circle, the width-height should be the same
+
     def resize(self, frame):
-        size_frame = 2
-        new_heigth = int(self.heigth/size_frame)
-        new_width = int(self.width/size_frame)
+        new_heigth = int(self.heigth/2)
+        new_width = int(self.width/2)
         resized_frame = cv2.resize(frame, (new_width, new_heigth))
         return resized_frame
 
@@ -55,7 +71,9 @@ class Tracker:
             raise ValueError('File not found.')
 
         # Select bounding box with ROI
-        bbox = cv2.selectROI(frame, False)
+        # bbox = cv2.selectROI(frame, False)
+        blob = self.detector(frame)[0].pt, self.detector(frame)[0].size
+        bbox = self.fromBlobToBbox(blob)
         success = self.tracker.init(frame, bbox)
 
         while cap.isOpened():
@@ -70,10 +88,12 @@ class Tracker:
                 point2 = (int(bbox[0]+bbox[2]), int(bbox[1]+bbox[3]))
                 cv2.rectangle(frame, point1, point2, (255, 0, 0), 2, 1)
             else:
-                cv2.putText(frame, "Failed.")
+                cv2.putText(
+                    frame, "Failed.", (100, 80),
+                    cv2.FONT_HERSHEY_SIMPLEX,
+                    0.75, (0, 0, 255), 2)
 
             key = cv2.waitKey(1) & 0xFF
-
             if key == ord('q'):  # Q Key pressed
                 break
             elif key == ord('s'):  # S Key pressed
