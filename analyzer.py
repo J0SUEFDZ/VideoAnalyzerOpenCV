@@ -1,5 +1,6 @@
 import cv2
 import numpy as np
+from time import sleep
 
 
 class Tracker:
@@ -8,43 +9,38 @@ class Tracker:
         self.tracker = None
         self.heigth = 0
         self.width = 0
+        self.size = 3
 
     def getBlobParams(self):
         params = cv2.SimpleBlobDetector_Params()
-        # Filter by Circularity
-        params.filterByCircularity = True
-        params.minCircularity = 0.8
+        # params.filterByCircularity = True
+        # params.minCircularity = 0.8
 
-        # Filter by Convexity
-        params.filterByConvexity = True
-        params.minConvexity = 0.5
+        # params.filterByConvexity = True
+        # params.minConvexity = 0.5
 
-        # Filter by Inertia
-        params.filterByInertia = False
-        params.minInertiaRatio = 0.01
+        # params.filterByInertia = False
+        # params.minInertiaRatio = 0.01
 
-        # Filter by colour
+        params.filterByArea = True
+        params.minArea = 9999
+        # params.maxArea = 999
+
         # params.filterByColor = True
-        # params.blobColor = 255
+        # params.blobColor = 200
 
         return params
 
-    def detector(self, frame):
-        detector = cv2.SimpleBlobDetector_create(self.getBlobParams())
-        keypoints = detector.detect(frame)
-        return keypoints
-
-    def fromBlobToBbox(self, blob):
-        x, y, size = blob  # Separate the values on the blob
-        x = (x - size/2)
-        y = int(y - size/2)
-        return x, y, size, size  # Since is a circle
+    # def fromBlobToBbox(self, blob):
+    #     x, y, size = blob  # Separate the values on the blob
+    #     x = (x - size/self.size)
+    #     y = int(y - size/self.size)
+    #     return x, y, size, size  # Since is a circle
 
     def resize(self, frame):
-        new_heigth = int(self.heigth/2)
-        new_width = int(self.width/2)
-        frame = cv2.resize(frame, (new_width, new_heigth))
-        return frame
+        new_heigth = int(self.heigth/self.size)
+        new_width = int(self.width/self.size)
+        return cv2.resize(frame, (new_width, new_heigth))
 
     def getTrackerByName(self, tracker_name='KCF'):
         tracker_name = tracker_name.upper()
@@ -71,43 +67,49 @@ class Tracker:
         # Resize image since is too big
         self.heigth = cap.get(cv2.CAP_PROP_FRAME_HEIGHT)
         self.width = cap.get(cv2.CAP_PROP_FRAME_WIDTH)
-        self.getTrackerByName()
+        # _, first_frame = cap.read()
+        # first_frame = self.resize(first_frame.copy())
+        # first_frame = cv2.cvtColor(first_frame, cv2.COLOR_BGR2GRAY)
 
-        # success, frame = cap.read()
-        # frame = self.resize(frame)
-
-        # if not success:
-        #     raise ValueError('File not found.')
-
-        # Select bounding box with ROI
-        # bbox = cv2.selectROI(frame, False)
-
-        # success = self.tracker.init(frame, bbox)
-        count = 0
+        detector = cv2.SimpleBlobDetector_create(self.getBlobParams())
         while cap.isOpened():
             success, frame = cap.read()
             if not success:
                 break
-            frame = self.resize(frame.copy())
-            # print("Count:", count)
-            count += 1
-            keypoints = self.detector(frame)
-            # detector = cv2.SimpleBlobDetector_create(self.getBlobParams())
-            # keypoints = detector.detect(frame)
+            #  1 - Aplying blur and thresold.
+            frame = self.resize(frame)
+            gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+            blurred = cv2.GaussianBlur(gray, (5, 5), 0)
+            thresh = cv2.threshold(blurred, 60, 255, cv2.THRESH_BINARY)[1]
+
+            #  2 - Aplying a mask per color.
+            lower_red = np.array([0, 130, 75])
+            upper_red = np.array([255, 255, 255])
+            hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
+            mask = cv2.inRange(hsv, lower_red, upper_red)
+            # ret, thresh = cv2.threshold(frame, 127, 255, 0)
+            contours, _ = cv2.findContours(
+                mask, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE
+            )
+            red = cv2.bitwise_and(frame, frame, mask=mask)
+
+            # cnt = cv2.drawContours(frame.copy(), contours, -1, (255, 0, 0))
+            # keypoints = detector.detect(hsv)
             # im_with_keypoints = cv2.drawKeypoints(
             #     frame, keypoints,
-            #     np.array([]), (0, 0, 255),
+            #     np.array([]), (255, 0, 0),
             #     cv2.DRAW_MATCHES_FLAGS_DRAW_RICH_KEYPOINTS
             # )
-            # cv2.imshow("Ball Rolling", im_with_keypoints)
 
-            for kp in keypoints:
-                print("Gooooo")
-                blob = kp.pt[0], kp.pt[1], kp.size
-                bbox = self.fromBlobToBbox(blob)
-                point1 = (int(bbox[0]), int(bbox[1]))
-                point2 = (int(bbox[0]+bbox[2]), int(bbox[1]+bbox[3]))
-                cv2.rectangle(frame, point1, point2, (255, 0, 0), 2, 1)
+            # cv2.imshow("frame", frame)
+            # cv2.imshow("gray", gray)
+            # cv2.imshow("blurred", blurred)
+            cv2.imshow("thresh", thresh)
+            # cv2.imshow("Keypoints", im_with_keypoints)
+            # cv2.imshow("Contours", cnt)
+            # cv2.imshow("Mask", mask)
+            cv2.imshow("red", red)
+
 
             # success, bbox = self.tracker.update(frame)
             # if success:
@@ -128,13 +130,14 @@ class Tracker:
             elif key == ord('t'):  # T Key pressed
                 input('Any key to continue')
 
-            cv2.imshow("Ball Rolling", frame)
+            # cv2.imshow("Ball Rolling", frame)
 
         cap.release()  # Dont forget to release your video!
-        cv2.destroyAllWindows()  # Close all the opened windows
 
 if __name__ == "__main__":
-    videoPath = 'assets/vid3.mp4'
+    videoPath = 'assets/vid1.mp4'
 
     tracker = Tracker(videoPath)
     tracker.tracking()
+
+    cv2.destroyAllWindows()  # Close all the opened windows
