@@ -8,7 +8,6 @@ class Detector:
     Source Video: https://www.youtube.com/watch?v=heds_qDFqsA
     """
     def __init__(self, fileInput):
-        self.videoPath = fileInput
         self.height = 0
         self.width = 0
 
@@ -29,7 +28,7 @@ class Detector:
         return out
 
     def detect_movement(self):
-        cap = cv2.VideoCapture(self.videoPath)
+        cap = cv2.VideoCapture('assets/vid_test.mp4')
         if not cap.isOpened():
             raise ValueError('The path specified is not valid.')
 
@@ -91,9 +90,6 @@ class Detector:
 
 
 if __name__ == "__main__":
-    videoPath = 'assets/vid_test.mp4'
-
-    detector = Detector(videoPath)
+    detector = Detector()
     detector.detect_movement()
-
     cv2.destroyAllWindows()  # Close all the opened windows
