@@ -1,15 +1,23 @@
+import boto3
 import cv2
 import numpy as np
 from time import sleep
+from os import environ
 
 
 class Detector:
     """
     Source Video: https://www.youtube.com/watch?v=heds_qDFqsA
     """
-    def __init__(self, fileInput):
+    def __init__(self, file_name, bucket_name):
         self.height = 0
         self.width = 0
+        self.video_path = "http://{}.s3.amazonaws.com/{}".format(
+            bucket_name,
+            file_name
+        )
+        self.filename = file_name.split("/")[-1]
+        self.bucket = bucket_name
 
     def getBlobParams(self):
         params = cv2.SimpleBlobDetector_Params()
@@ -19,22 +27,68 @@ class Detector:
 
         return params
 
-    def video_writer(self, file_to_write):
+    def video_writer(self, prefix):
         out = cv2.VideoWriter(
-            "assets/"+file_to_write+'.avi',
-            cv2.VideoWriter_fourcc('M', 'J', 'P', 'G'),
+            "/tmp/"+prefix+"_"+self.filename,
+            cv2.VideoWriter_fourcc(*'mp4v'),
             30, (int(self.width), int(self.height))
         )
         return out
 
+    def aws_transcode(self, prefix):
+        preset_id = '1351620000001-000010'
+        if 'ACCESS_KEY_ID' in environ:
+            ACCESS_KEY_ID = environ['ACCESS_KEY_ID']
+            SECRET_ACCESS_KEY = environ['SECRET_ACCESS_KEY']
+        else:
+            import settings
+            ACCESS_KEY_ID = settings.ACCESS_KEY_ID
+            SECRET_ACCESS_KEY = settings.SECRET_ACCESS_KEY
+        client_job = boto3.client(
+            'elastictranscoder',
+            aws_access_key_id=ACCESS_KEY_ID,
+            aws_secret_access_key=SECRET_ACCESS_KEY
+        )
+        outputs = [{
+            'Key': "analyzed/"+prefix+"_"+self.filename,
+            'PresetId': preset_id
+        }]
+        client_job.create_job(
+            PipelineId='1569599713304-xg0p7a',
+            Input={'Key': "tmp_analyzed/"+prefix+"_"+self.filename},
+            Outputs=outputs
+        )
+
+    def upload_file_s3(self, prefix):
+        if 'ACCESS_KEY_ID' in environ:
+            ACCESS_KEY_ID = environ['ACCESS_KEY_ID']
+            SECRET_ACCESS_KEY = environ['SECRET_ACCESS_KEY']
+        else:
+            import settings
+            ACCESS_KEY_ID = settings.ACCESS_KEY_ID
+            SECRET_ACCESS_KEY = settings.SECRET_ACCESS_KEY
+        s3_session = boto3.session.Session(
+            aws_access_key_id=ACCESS_KEY_ID,
+            aws_secret_access_key=SECRET_ACCESS_KEY
+            ).resource('s3')
+        analyzed_video = open("/tmp/"+prefix+"_"+self.filename, "rb")
+        s3_session.Bucket(self.bucket).put_object(
+            Key="tmp_analyzed/"+prefix+"_"+self.filename,
+            Body=analyzed_video,
+            ContentType='video/mp4'
+        )
+        self.aws_transcode(prefix)  # Transcode the file after is done
+        analyzed_video.close()
+        return True
+
     def detect_movement(self):
-        cap = cv2.VideoCapture('assets/vid_test.mp4')
+        cap = cv2.VideoCapture(self.video_path)
         if not cap.isOpened():
             raise ValueError('The path specified is not valid.')
 
         self.height = cap.get(cv2.CAP_PROP_FRAME_HEIGHT)
         self.width = cap.get(cv2.CAP_PROP_FRAME_WIDTH)
-        _, first_frame = cap.read()
+        _, first_frame = cap.read()  # Needed for the diff functionality
 
         detector = cv2.SimpleBlobDetector_create(self.getBlobParams())
         red_video = self.video_writer('red')
@@ -72,7 +126,7 @@ class Detector:
                     im_with_keypoints,  # Image output
                     (x_pt, y_pt),  # X, Y coordiantes
                     ball_size,  # Radius of the ball.
-                    (255, 0, 0),  # Color, BGR.
+                    (255, 0, 0),  # Color in BGR.
                     3  # Thickness of the line.
                 )
             cv2.imshow("3- Keypoints", im_with_keypoints)
@@ -83,13 +137,15 @@ class Detector:
                 break
             elif key == ord('s'):  # S Key pressed, sleep for 5 seconds
                 sleep(5)
-            elif key == ord('t'):  # T Key pressed, stop detection.
+            elif key == ord('t'):  # T Key pressed, stop until key is pressed.
                 input('Any key to continue')
-
+        self.upload_file_s3("red")
+        self.upload_file_s3("diff")
+        self.upload_file_s3("keypoints")
         cap.release()  # Dont forget to release your video!
 
 
 if __name__ == "__main__":
-    detector = Detector()
+    detector = Detector("original/vid_test.mp4", "blog4geeks")
     detector.detect_movement()
     cv2.destroyAllWindows()  # Close all the opened windows
